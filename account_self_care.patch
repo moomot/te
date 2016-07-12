@@ -1,0 +1,63 @@
+From 058642278241f9a32a80cd68e864baead0c34290 Mon Sep 17 00:00:00 2001
+From: dotersojet <Nikolay.Samoylenko@portaone.com>
+Date: Fri, 11 Mar 2016 18:02:11 +0200
+Subject: RT#482321 Accounts identity panel - show clir blocked flag
+
+Change-Id: I7f5ab77e471329e11242428ce6a52b6bab378812
+
+diff --git a/handlers/DummyData.js b/handlers/DummyData.js
+index 627f8b1..50b255d 100644
+--- a/handlers/DummyData.js
++++ b/handlers/DummyData.js
+@@ -383,9 +383,4 @@ Ext.onReady(function() {
+         ["D", _t('t_override_number_always')]
+     ];
+ 
+-    DummyData.IdentityClirPreferences = [
+-        ["^", Constants.Customers_Default_Txt],
+-        ["N", _t('t_No')],
+-        ["P", _t('t_Yes')]
+-    ];
+ });
+diff --git a/js/ui/IPCentrex/IPC.Identity.js b/js/ui/IPCentrex/IPC.Identity.js
+index 6b9b87d..541bfc2 100644
+--- a/js/ui/IPCentrex/IPC.Identity.js
++++ b/js/ui/IPCentrex/IPC.Identity.js
+@@ -5,8 +5,8 @@
+ Panels.IPCentrex.Identity = function(config) {
+     var identityTabSF = config.isAccount ? 'clir' : 'cli';
+     this.store = new Ext.data.ArrayStore({
+-        fields: ['db_value', 'web_value'],
+-        data: config.isAccount ? DummyData.IdentityClirPreferences : DummyData.OverrideIdentity
++        fields: config.isAccount ? ['web_value', 'db_value'] : ['db_value', 'web_value'],
++        data: config.isAccount ? DummyData.YesNo : DummyData.OverrideIdentity
+     });
+ 
+     this.readOnlyMode = _isForbidden('Identity', Constants.UPDATE) || !App.ServiceFeatures.isAllowedToEdit(identityTabSF);
+@@ -70,11 +70,10 @@ Ext.extend(Panels.IPCentrex.Identity, Panels.IPCentrex.AbstractPanel, {
+         if (this.isAccount) {
+ 
+             var helper = new Utils.ArrayDataHelper(rec.get('service_features')),
+-                clirValue = helper.findValueByName('clir', 'effective_flag_value');
+-
+-            rec.set('clir', clirValue);
+-            this.hideCLICombo.previousValue = clirValue; //save previous combo's value
++                clirEnabled = helper.findValueByName('clir', 'effective_flag_value') === 'P',
++                clirBlocked = clirEnabled ? App.ServiceFeatures.getRawAttributeValue('clir', 'blocked') || "N" : "N";
+ 
++            this.hideCLICombo.setValue(clirBlocked);
+         }
+         return rec;
+     },
+@@ -368,7 +367,7 @@ Ext.extend(Panels.IPCentrex.Identity, Panels.IPCentrex.AbstractPanel, {
+             this.hideCLICombo = this.getBaseCombo({
+                 store: this.store,
+                 fieldLabel: _t('t_ipc_Identity_hide_cli'),
+-                name: 'clir',
++                name: 'clir_blocked',
+                 emptyText: _t('t_ipc_Identity_define_a_hide_cli'),
+                 readOnly: this.isDisabled || this.readOnlyMode,
+                 select: this.onComboChange,
+-- 
+cgit v0.10.2
+
