@@ -1,0 +1,41 @@
+From b159b80eae90dfac6e20a7d3692e52dfdd2af589 Mon Sep 17 00:00:00 2001
+From: Andrey Beznoshchenko <Andrey.Beznoshchenko@portaone.com>
+Date: Thu, 23 Oct 2014 10:30:13 +0300
+Subject: RT#378254 Fixed follow me configuration saving in accounts moving
+ manager
+
+Change-Id: Ic0a11062ec4dc5411272563b232e0facff758d58
+
+diff --git a/site_lib/Porta/Account/MovingManager.pm b/site_lib/Porta/Account/MovingManager.pm
+index 61b360f..1c927b4 100644
+--- a/site_lib/Porta/Account/MovingManager.pm
++++ b/site_lib/Porta/Account/MovingManager.pm
+@@ -321,12 +321,23 @@ sub move {
+     my $follow_me_numbers = $fm->get_numbers({ 'i_account' => $src_i_account });
+     #----- Save Follow Me Configuration
+     if ( $follow_me ) {
+-        my $i_follow_me = $fm->add({
++        my $i_follow_me = undef;
++        my $new_fm_hash = {
+             'i_account'    => $i_account,
+             'timeout'      => $follow_me->{'timeout'},
+             'sequence'     => $follow_me->{'sequence'},
+             'max_forwards' => $follow_me->{'max_forwards'},
+-        });
++        };
++        # new account may contain Follow_Me record because of enabling of FM in SF 'forward_mode'
++        my $new_acc_fm = $fm->get({ 'i_account' => $i_account });
++
++        if ( $new_acc_fm ) {
++            $new_fm_hash->{'i_follow_me'} = $new_acc_fm->{'i_follow_me'};
++            $i_follow_me = $fm->update($new_fm_hash);
++        }
++        else {
++            $i_follow_me = $fm->add($new_fm_hash);
++        }
+ 
+         if ( !$i_follow_me ) {
+             die "failed_to_copy_follow_me";
+-- 
+cgit v0.10.2
+
