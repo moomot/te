@@ -1,0 +1,127 @@
+From d22215e622cd74571daaeecf86cd6544be048ab6 Mon Sep 17 00:00:00 2001
+From: Eugene Shevchenko <Eugene.Shevchenko@portaone.com>
+Date: Mon, 28 Jul 2014 13:18:35 +0300
+Subject: RT#335057: Time information for call attempts from sip log shows in
+ the user's timezone/format
+
+Change-Id: I7ee5f4e6fcc32d0ceb66a9075aefb548629bad2e
+
+diff --git a/apache/localz/node.xml b/apache/localz/node.xml
+index 0c703d8..7ff0932 100644
+--- a/apache/localz/node.xml
++++ b/apache/localz/node.xml
+@@ -1147,4 +1147,7 @@
+ <message name="update_did_numbers_caution">
+ <en>If this node accepts calls from DID Providers and you change 'NAS-IP-Address', DID numbers will not work for some time while DID Numbers Mapping is updated. Are you sure you want to proceed?</en>
+ </message>
++<message name="Date_Time">
++<en>Date / Time</en>
++</message>
+ </root>
+diff --git a/apache/siplog_comp/calls_list.mcomp b/apache/siplog_comp/calls_list.mcomp
+index 0774c12..6af9a29 100644
+--- a/apache/siplog_comp/calls_list.mcomp
++++ b/apache/siplog_comp/calls_list.mcomp
+@@ -84,8 +84,24 @@ else {
+     }
+ 
+     @CallList = sort {
+-            $b->{SetupTime} cmp $a->{SetupTime}
+-         } @CallList;
++        $b->{SetupTime} cmp $a->{SetupTime}
++    } @CallList;
++
++    my $logger = Porta::Log::PortaAdmin->get_logger();
++    foreach my $call (@CallList) {
++        next if !$call->{SetupTime};
++
++        my $setup_time = $call->{SetupTime};
++        eval {
++            $call->{SetupTime} = Porta::Date->new({
++                -date   => $setup_time,
++                -format => 'iso'
++            })->asCustomFormat( $ph->{out_date_time_format}, $ph->{TZ} );
++        };
++        if ($@) {
++            $logger->warn("Unexpected setup time format: '$setup_time'. Expected ISO time format.");
++        }
++    }
+ 
+ }
+ </%init>
+@@ -150,7 +166,7 @@ if ( ! @$ErrorNodes ) {
+ <table cellspacing="2" cellpadding="2" width="100%">
+ <THEAD>
+ <tr>
+-    <th><text>Setup Time</text><br><text>(in SIP server TZ)</text></th>
++    <th><text>Setup Time</text></th>
+     <th><text>Caller's Protocol:IP:Port</text></th>
+     <th><text>CLI</text></th>
+     <th><text>CLD</text></th>
+diff --git a/apache/siplog_comp/siplog_diagram.mcomp b/apache/siplog_comp/siplog_diagram.mcomp
+index 236b9cf..abe6fac 100644
+--- a/apache/siplog_comp/siplog_diagram.mcomp
++++ b/apache/siplog_comp/siplog_diagram.mcomp
+@@ -373,20 +373,21 @@ $Call_ID
+     for ( 1 .. scalar( @{$sip_log->{Participants}} ) ) {
+         $diagram_params->{ORDER}->{ $sip_log->{Participants}->[$_]->{alias} } = $_;
+     }
++    my $date_time_localz = T('Date_Time');
+ </%init>
+     <div id="siplog-wrap-block">
+ %# Print diagram head
+ 
+         <div id="siplog_diagram_header_fixed" >
+-            <& print_header_line_txt, fields => [ 'PortaSIP', map { $_->{'host'} } @{$sip_log->{'Participants'}} ] &>
+-            <& print_header_line_txt, fields => [ 'Server', map { $_->{'name'} } @{$sip_log->{'Participants'}} ] &>
+-            <& print_header_line_txt, fields => [ 'timezone', map { $_->{'product'} } @{$sip_log->{'Participants'}} ] &>
++            <& print_header_line_txt, fields => [ '',                map { $_->{'host'} } @{$sip_log->{'Participants'}} ] &>
++            <& print_header_line_txt, fields => [ $date_time_localz, map { $_->{'name'} } @{$sip_log->{'Participants'}} ] &>
++            <& print_header_line_txt, fields => [ '',                map { $_->{'product'} } @{$sip_log->{'Participants'}} ] &>
+         </div>
+ 
+ %# Print diagram body
+         <div id="siplog_diagram">
+ % foreach my $LogIndex ( 0 .. $#{ $sip_log->{'SIPLogMessages'} } ) {
+-            <& print_body_line_txt, entry => $sip_log->{'SIPLogMessages'}->[$LogIndex], LogIndex => $LogIndex &>
++            <& print_body_line_txt, entry => $sip_log->{'SIPLogMessages'}->[$LogIndex], LogIndex => $LogIndex, ph => $ph &>
+ % }
+         </div>
+ 
+@@ -427,12 +428,32 @@ $Call_ID
+ <%args>
+     $entry
+     $LogIndex
++    $ph
+ </%args>
+ <%init>
+     my $DateWidth  = $diagram_params->{DATETIME_FIELD_LEN};
+     my $FieldWidth = $diagram_params->{FIELD_LEN};
+ 
+-    my $line = sprintf('<span class="siplog_date">'."%-".$DateWidth.".".$DateWidth."s".'</span>', $entry->{datetime});
++    $entry->{datetime}  =~ /\.(\d{1,3})$/;
++    my $fractional_part = $1 // '000';
++
++    my $customer_datetime;
++    eval {
++        $customer_datetime = Porta::Date->new({
++            -date   => $entry->{datetime},
++            -format => 'iso'
++        })->asCustomFormat( $ph->{out_date_time_format}, $ph->{TZ} );
++    };
++    if ($@) {
++        my $logger = Porta::Log::PortaAdmin->get_logger();
++        $logger->warn("Unexpected setup time format: '" . $entry->{datetime} . "'. Expected ISO time format.");
++        $customer_datetime = $entry->{datetime};
++    }
++
++    my $sip_server_tz_localz = T('SIP Server') . ' ' . T('Time Zone');
++    my $server_tz_hint = '<span style="border-bottom:dotted 1px black;" title="' . $sip_server_tz_localz . ': ' . $entry->{datetime} . '">';
++
++    my $line = sprintf('<span class="siplog_date">'. $server_tz_hint . "%-".$DateWidth.".".$DateWidth."s".'</span></span>', $customer_datetime . ".$fractional_part");
+ 
+     if ( $entry->{participantFrom} && $entry->{participantFrom} ) {
+ 
+-- 
+cgit v0.10.2
+
